@@ -1,0 +1,36 @@
+{
+  "project_name": "TI AWR1843BOOST Standalone Door Sensor",
+  "version": "1.0.0",
+  "detection": {
+    "door_range_min_m": 0.4,
+    "door_range_max_m": 1.8,
+    "azimuth_fov_deg": [-45.0, 45.0],
+    "min_detection_points": 2,
+    "min_snr_db": 12.0,
+    "debounce_open_frames": 5,
+    "debounce_close_frames": 5,
+    "auto_calibrate_on_boot": true,
+    "calibration_frames": 30
+  },
+  "hardware": {
+    "target_soc": "AWR1843",
+    "board": "AWR1843BOOST",
+    "dca1000_required": false,
+    "led_indication": {
+      "gpio_pin": "GPIO_2",
+      "led_name": "DS3",
+      "open_state": "HIGH (LED ON)",
+      "closed_state": "LOW (LED OFF)"
+    },
+    "aux_output": {
+      "header": "J5 BoosterPack Pin 19",
+      "gpio_pin": "GPIO_1",
+      "description": "3.3V Logic level output for external relay / buzzer / ESP32"
+    }
+  },
+  "serial": {
+    "cli_port_baud": 115200,
+    "data_port_baud": 921600,
+    "auto_detect_ports": true
+  }
+}

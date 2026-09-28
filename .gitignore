@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.env
+venv/
+ENV/
+*.csv
+
+# Intermediate build objects (if generated in project folder)
+*.obj
+*.o
+*.pp
+*.xer4f
+*.xe674
+*.map
+*.tmp
+*.log
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# Keep the prebuilt binary in git
+!firmware/prebuilt_binaries/*.bin
