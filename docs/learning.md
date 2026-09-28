@@ -37,8 +37,14 @@ Frequency (GHz)
 ### Chirp Parameters
 - **Start Frequency ($f_0$ / $f_c$)**: $77\text{ GHz}$
 - **Chirp Duration ($T_c$)**: Active ramp time during which ADC samples are acquired
-- **Chirp Slope ($S$)**: Rate of frequency increase: $S = \frac{df}{dt} = \frac{B}{T_c}$
-- **Wavelength ($\lambda$)**: $\lambda = \frac{c}{f_c} = \frac{3 \times 10^8\text{ m/s}}{77 \times 10^9\text{ Hz}} \approx 3.896\text{ mm}$
+- **Chirp Slope ($S$)**: Rate of frequency increase:
+```math
+S = \frac{df}{dt} = \frac{B}{T_c}
+```
+- **Wavelength ($\lambda$)**:
+```math
+\lambda = \frac{c}{f_c} = \frac{3 \times 10^8\text{ m/s}}{77 \times 10^9\text{ Hz}} \approx 3.896\text{ mm}
+```
 
 ---
 
@@ -47,9 +53,9 @@ Frequency (GHz)
 ### The Physics of Range Measurement
 Consider a door located at radial distance $R$ from the sensor. The round-trip flight time of the electromagnetic wave is:
 
-$$
+```math
 \tau = \frac{2R}{c}
-$$
+```
 
 where $c \approx 3 \times 10^8\text{ m/s}$ is the speed of light.
 
@@ -71,54 +77,54 @@ Frequency ^
 
 The frequency difference between transmitted and received signals is constant over the linear ramp:
 
-$$
+```math
 f_{\text{IF}} = S \cdot \tau = S \cdot \frac{2R}{c}
-$$
+```
 
 Solving for distance $R$:
 
-$$
+```math
 R = \frac{c \cdot f_{\text{IF}}}{2S}
-$$
+```
 
 ### 1D Range FFT
 The continuous IF signal is sampled by an onboard ADC at sampling frequency $F_s = 7200\text{ ksps}$ into $N_{\text{ADC}} = 256$ samples. Performing an FFT on this time-domain ADC buffer transforms the beat frequencies into a **Range Profile**:
 - Every spectral peak in the Range FFT corresponds to a physical reflecting surface.
 - The frequency spacing per FFT bin is:
 
-$$
+```math
 \Delta f = \frac{F_s}{N_{\text{ADC}}}
-$$
+```
 
 - Substituting $\Delta f$ into the range equation yields the **Range Resolution ($\Delta R$)**:
 
-$$
+```math
 \Delta R = \frac{c \cdot \Delta f}{2S} = \frac{c \left(\frac{F_s}{N_{\text{ADC}}}\right)}{2 \left(\frac{B}{T_{\text{ADC}}}\right)}
-$$
+```
 
-  Since $T_{\text{ADC}} = \frac{N_{\text{ADC}}}{F_s}$, the expression simplifies directly to:
+Since $T_{\text{ADC}} = \frac{N_{\text{ADC}}}{F_s}$, the expression simplifies directly to:
 
-$$
+```math
 \Delta R = \frac{c}{2B}
-$$
+```
 
 ### Numerical Calculation for Our Door Sensor
-In [door_sensor_profile.cfg](file:///C:/Users/dellb/Desktop/VISHNU/PROJECTS/DOOR%20SENSOR/config/door_sensor_profile.cfg):
+In `door_sensor_profile.cfg`:
 - Chirp Slope: $S = 100\text{ MHz}/\mu\text{s} = 100 \times 10^{12}\text{ Hz/s}$
 - ADC Samples: $N_{\text{ADC}} = 256$
 - ADC Sampling Rate: $F_s = 7200\text{ ksps} = 7.2\times 10^6\text{ samples/s}$
 - Active Collection Time: $T_{\text{ADC}} = \frac{256}{7.2 \times 10^6\text{ s}} \approx 35.56\,\mu\text{s}$
 - Effective Swept Bandwidth:
 
-$$
+```math
 B = S \cdot T_{\text{ADC}} = 100 \times 10^{12} \times 35.56 \times 10^{-6} \approx 3.556\text{ GHz}
-$$
+```
 
 - Resulting Range Resolution:
 
-$$
+```math
 \Delta R = \frac{3 \times 10^8\text{ m/s}}{2 \times 3.556 \times 10^9\text{ Hz}} \approx 0.0422\text{ m} = \mathbf{4.22\text{ cm}}
-$$
+```
 
 With a **4.2 cm range resolution**, the radar easily detects even slight door openings (e.g. 5–10 cm cracks) by observing the collapse or shift of the closed-door reflection peak.
 
@@ -127,36 +133,36 @@ With a **4.2 cm range resolution**, the radar easily detects even slight door op
 ## 3. Doppler Processing & Motion Signatures
 
 ### Phase Sensitivity & Velocity
-While the beat frequency $f_{\text{IF}}$ resolves coarse distance on the centimeter scale, the phase $\phi$ of the received IF signal is sensitive to sub-millimeter displacements. The phase of the beat signal is:
+While the beat frequency $f_{\text{IF}}$ resolves coarse distance on the centimeter scale, the phase $\phi$ of the received IF signal is sensitive to sub-millimeter displacements:
 
-$$
+```math
 \phi = 2\pi f_c \tau = 2\pi \frac{c}{\lambda} \left(\frac{2R}{c}\right) = \frac{4\pi R}{\lambda}
-$$
+```
 
 If the door moves by a tiny displacement $\Delta R$:
 
-$$
+```math
 \Delta \phi = \frac{4\pi \Delta R}{\lambda}
-$$
+```
 
 Since $\lambda \approx 3.9\text{ mm}$, a displacement of only **1 mm** produces a phase shift of:
 
-$$
+```math
 \Delta \phi = \frac{4\pi \times 0.001}{0.0039} \approx 3.22\text{ radians} \approx 184^\circ
-$$
+```
 
 ### 2D Doppler FFT
 Across a frame of $N_{\text{chirps}} = 32$ consecutive chirps separated by inter-chirp interval $T_c$:
 
-$$
+```math
 \Delta R = v \cdot T_c \implies \Delta \phi = \frac{4\pi v T_c}{\lambda}
-$$
+```
 
 Solving for radial velocity $v$:
 
-$$
+```math
 v = \frac{\lambda \cdot \Delta \phi}{4\pi T_c}
-$$
+```
 
 Performing a second FFT across the chirps for each range bin (2D FFT) generates the **Range-Doppler Matrix**:
 - **Door Opening**: Radial velocity is non-zero ($v > 0$ as the door leaf recedes from the sensor).
@@ -184,34 +190,34 @@ Incident Wavefront
 
 The phase difference between adjacent RX antennas spaced by distance $d = \frac{\lambda}{2}$ is:
 
-$$
+```math
 \Delta \Phi = \frac{2\pi}{\lambda} d \sin(\theta) = \frac{2\pi}{\lambda} \left(\frac{\lambda}{2}\right) \sin(\theta) = \pi \sin(\theta)
-$$
+```
 
 Solving for arrival angle $\theta$:
 
-$$
+```math
 \theta = \arcsin\left(\frac{\Delta \Phi}{\pi}\right)
-$$
+```
 
 ### Time-Division Multiplexed (TDM) MIMO
 The AWR1843 features **3 Transmit (TX)** antennas and **4 Receive (RX)** antennas. By alternating transmissions between TX1 and TX2 across consecutive chirps (TDM-MIMO), the system synthesizes a **virtual antenna array** of $2 \times 4 = 8$ elements in azimuth:
 - **Azimuth Angular Resolution**:
 
-$$
+```math
 \Delta \theta \approx \frac{\lambda}{N_{\text{virtual}} \cdot d} = \frac{2}{8} \approx 0.25\text{ rad} \approx 14.3^\circ
-$$
+```
 
 ### Cartesian 3D Reconstruction
 From measured spherical coordinates (range $R$, azimuth $\theta$, elevation $\phi$), the onboard processor calculates 3D Cartesian coordinates:
 
-$$
+```math
 \begin{cases} 
 x = R \sin(\theta) \cos(\phi) & \text{(Lateral position)} \\ 
 y = R \cos(\theta) \cos(\phi) & \text{(Boresight depth)} \\ 
 z = R \sin(\phi) & \text{(Elevation)} 
 \end{cases}
-$$
+```
 
 ---
 
@@ -229,27 +235,27 @@ CFAR dynamically computes an adaptive threshold for each **Cell Under Test (CUT)
 
 1. **Noise Power Estimation ($P_n$)**:
 
-$$
+```math
 P_n = \frac{1}{N_{\text{train}}} \left(\sum_{i=1}^{N_{\text{train}}/2} X_{\text{left}}[i] + \sum_{i=1}^{N_{\text{train}}/2} X_{\text{right}}[i]\right)
-$$
+```
 
 2. **Adaptive Detection Threshold ($V_{th}$)**:
 
-$$
+```math
 V_{th} = \alpha \cdot P_n
-$$
+```
 
 where $\alpha$ is a scaling factor related to the desired probability of false alarm ($P_{\text{FA}}$):
 
-$$
+```math
 \alpha = N_{\text{train}} \left(P_{\text{FA}}^{-1 / N_{\text{train}}} - 1\right)
-$$
+```
 
 3. **Detection Decision**:
 
-$$
+```math
 \text{Target Present} \iff X_{\text{CUT}} > V_{th}
-$$
+```
 
 For our door sensor:
 - Static clutter removal is intentionally **disabled** (`clutterRemoval -1 0`) so that stationary doors remain detectable by CFAR.
@@ -261,53 +267,53 @@ For our door sensor:
 
 After CFAR detection, the radar produces a 3D point cloud of $K$ points per frame:
 
-$$
+```math
 \mathcal{P} = \left\{ (x_i, y_i, z_i, v_i, \text{SNR}_i) \right\}_{i=1}^K
-$$
+```
 
 ### Region of Interest (ROI) Gating
 A physical doorway occupies a defined volume in space. The spatial gating filter evaluates whether each point falls inside the 3D bounding box:
 
-$$
+```math
 \mathcal{B}_{\text{door}} = \left\{ (x, y, z) \;\middle|\; x_{\min} \le x \le x_{\max},\; R_{\min} \le y \le R_{\max},\; z_{\min} \le z \le z_{\max} \right\}
-$$
+```
 
 Points outside this box (e.g. walls, ceiling, objects deeper in the room) are rejected:
 
-$$
+```math
 \mathcal{P}_{\text{door}} = \left\{ p \in \mathcal{P} \;\middle|\; p \in \mathcal{B}_{\text{door}} \right\}
-$$
+```
 
 ### Frame Metrics
 On each frame $k$, three metrics are computed:
 
 - **Point Count** $N_{\text{pts}}(k)$:
 
-$$
+```math
 N_{\text{pts}}(k) = |\mathcal{P}_{\text{door}}|
-$$
+```
 
 - **Mean Range** $\bar{R}(k)$:
 
-$$
+```math
 \bar{R}(k) = \frac{1}{N_{\text{pts}}(k)} \sum_{p \in \mathcal{P}_{\text{door}}} \sqrt{x_p^2 + y_p^2 + z_p^2}
-$$
+```
 
 - **Peak SNR** $\text{SNR}_{\text{peak}}(k)$:
 
-$$
+```math
 \text{SNR}_{\text{peak}}(k) = \max_{p \in \mathcal{P}_{\text{door}}} (\text{SNR}_p)
-$$
+```
 
 ### Instantaneous Candidate Decision
 The instantaneous state candidate for frame $k$ is determined by comparing the point count and peak reflection energy against configured thresholds:
 
-$$
+```math
 \text{State}_{\text{cand}}(k) = \begin{cases} 
 \text{CLOSED}, & \text{if } N_{\text{pts}}(k) \ge N_{\min} \text{ and } \text{SNR}_{\text{peak}}(k) \ge \text{SNR}_{\text{th}} \\ 
 \text{OPEN}, & \text{otherwise} 
 \end{cases}
-$$
+```
 
 ---
 
@@ -335,42 +341,42 @@ Let $C_{\text{open}}(k)$ and $C_{\text{close}}(k)$ be consecutive-frame debounce
 
 **Transition from CLOSED to OPEN**:
 
-$$
+```math
 C_{\text{open}}(k) = \begin{cases} 
 C_{\text{open}}(k-1) + 1, & \text{if } \text{State}_{\text{cand}}(k) = \text{OPEN} \\ 
 0, & \text{if } \text{State}_{\text{cand}}(k) = \text{CLOSED} 
 \end{cases}
-$$
+```
 
-$$
+```math
 \text{State}(k) = \begin{cases} 
 \text{OPEN}, & \text{if } C_{\text{open}}(k) \ge M_{\text{open}} \implies \text{OpenCount} \leftarrow \text{OpenCount} + 1 \\ 
 \text{CLOSED}, & \text{otherwise} 
 \end{cases}
-$$
+```
 
 **Transition from OPEN to CLOSED**:
 
-$$
+```math
 C_{\text{close}}(k) = \begin{cases} 
 C_{\text{close}}(k-1) + 1, & \text{if } \text{State}_{\text{cand}}(k) = \text{CLOSED} \\ 
 0, & \text{if } \text{State}_{\text{cand}}(k) = \text{OPEN} 
 \end{cases}
-$$
+```
 
-$$
+```math
 \text{State}(k) = \begin{cases} 
 \text{CLOSED}, & \text{if } C_{\text{close}}(k) \ge M_{\text{close}} \implies \text{CloseCount} \leftarrow \text{CloseCount} + 1 \\ 
 \text{OPEN}, & \text{otherwise} 
 \end{cases}
-$$
+```
 
 ### Temporal Analysis
 With frame periodicity $T_{\text{frame}} = 100\text{ ms}$ (10 frames/sec) and debounce parameter $M = 5$:
 
-$$
+```math
 T_{\text{debounce}} = M \times T_{\text{frame}} = 5 \times 100\text{ ms} = \mathbf{500\text{ ms}}
-$$
+```
 
 - Any transient reflection drop lasting less than $0.5\text{ s}$ is rejected as noise.
 - When an intentional door opening or closing occurs, the transition triggers within exactly $500\text{ ms}$, ensuring responsive yet stable operation.
@@ -385,18 +391,18 @@ The auto-calibration algorithm runs on power-up:
 1. For the first $K_{\text{calib}} = 20$ frames ($\approx 2.0\text{ s}$), the user ensures the door is closed.
 2. The MCU computes the sample mean of the closed door distance:
 
-$$
+```math
 \hat{R}_{\text{door}} = \frac{1}{K_{\text{calib}}} \sum_{j=1}^{K_{\text{calib}}} \bar{R}(j)
-$$
+```
 
 3. The spatial range gate is automatically adapted around the measured door reflection:
 
-$$
+```math
 \begin{cases} 
 R_{\min} = \max\left(0.15\text{ m},\; \hat{R}_{\text{door}} - 0.30\text{ m}\right) \\ 
 R_{\max} = \hat{R}_{\text{door}} + 0.35\text{ m} 
 \end{cases}
-$$
+```
 
 4. Calibration completes, initial state is locked to `DOOR_STATE_CLOSED`, and normal FSM monitoring commences.
 
