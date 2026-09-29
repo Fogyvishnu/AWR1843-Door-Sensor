@@ -95,6 +95,7 @@ static int32_t MmwDemo_CLIDoorCfg (int32_t argc, char* argv[]);
 static int32_t MmwDemo_CLIResetCounters (int32_t argc, char* argv[]);
 static int32_t MmwDemo_CLICalibrateDoor (int32_t argc, char* argv[]);
 static int32_t MmwDemo_CLIDoorStatus (int32_t argc, char* argv[]);
+static int32_t MmwDemo_CLIVt100 (int32_t argc, char* argv[]);
 static int32_t MmwDemo_CLIExecuteLine (char* line);
 static void    MmwDemo_doorAutoStartTask (UArg arg0, UArg arg1);
 
@@ -1467,6 +1468,11 @@ void MmwDemo_CLIInit (uint8_t taskPriority)
     cliCfg.tableEntry[cnt].cmdHandlerFxn  = MmwDemo_CLIDoorStatus;
     cnt++;
 
+    cliCfg.tableEntry[cnt].cmd            = "vt100";
+    cliCfg.tableEntry[cnt].helpString     = "<0|1> Toggle live VT100 dashboard";
+    cliCfg.tableEntry[cnt].cmdHandlerFxn  = MmwDemo_CLIVt100;
+    cnt++;
+
     /* Open the CLI: */
     if (CLI_open (&cliCfg) < 0)
     {
@@ -1552,7 +1558,25 @@ static int32_t MmwDemo_CLIDoorStatus (int32_t argc, char* argv[])
     CLI_write(" Points In ROI:%u\n", (unsigned int)pStatus->pointsInDoorZone);
     CLI_write(" Peak SNR:     %.1f dB\n", pStatus->peakSnr);
     CLI_write(" Calibrated:   %s\n", pStatus->isCalibrated ? "YES" : "NO");
+    CLI_write(" VT100 Mode:   %s\n", pStatus->vt100Mode ? "ON" : "OFF");
     CLI_write("=============================================\n");
+    return 0;
+}
+
+static int32_t MmwDemo_CLIVt100 (int32_t argc, char* argv[])
+{
+    if (argc >= 2)
+    {
+        uint8_t enable = (uint8_t)atoi(argv[1]);
+        DoorDetector_setVt100Mode(enable);
+        CLI_write("VT100 mode: %s\n", enable ? "ENABLED" : "DISABLED");
+    }
+    else
+    {
+        uint8_t curr = DoorDetector_getVt100Mode();
+        DoorDetector_setVt100Mode(!curr);
+        CLI_write("VT100 mode toggled: %s\n", (!curr) ? "ENABLED" : "DISABLED");
+    }
     return 0;
 }
 

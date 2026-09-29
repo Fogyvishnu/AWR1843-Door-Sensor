@@ -1259,36 +1259,70 @@ static void MmwDemo_transmitProcessedOutput
                 GPIO_write(gMmwMssMCB.cfg.platformCfg.SensorStatusGPIO, 0U);
             }
 
-            /* Instant event log to UART when door transitions state */
-            if (pDoorStatus->stateChangedFlag && (gMmwMssMCB.commandUartHandle != NULL))
+            /* =========================================================================
+             * UART Output Engine: VT100 Live Dashboard or Raw Line Telemetry
+             * ========================================================================= */
+            if (gMmwMssMCB.commandUartHandle != NULL)
             {
-                char evtBuf[128];
-                int evtLen = snprintf(evtBuf, sizeof(evtBuf),
-                    "\r\n>>> [EVENT] DOOR %s! (Total Opens: %u | Total Closes: %u) <<<\r\n",
-                    DoorDetector_stateToString(pDoorStatus->currentState),
-                    (unsigned int)pDoorStatus->totalOpenCount,
-                    (unsigned int)pDoorStatus->totalCloseCount);
-                if (evtLen > 0)
-                {
-                    UART_writePolling(gMmwMssMCB.commandUartHandle, (uint8_t*)evtBuf, evtLen);
-                }
-            }
+                static char s_vt100UartBuf[2048];
+                static uint8_t s_vt100Initialized = 0;
 
-            /* Periodic Telemetry (Every 10 frames = 1 second) */
-            if (((pDoorStatus->frameCount % 10) == 0) && (gMmwMssMCB.commandUartHandle != NULL))
-            {
-                char statBuf[160];
-                int statLen = snprintf(statBuf, sizeof(statBuf),
-                    "[DOOR] State: %s | Opens: %u | Closes: %u | Dist: %.2fm | Pts: %u | SNR: %.1fdB\r\n",
-                    DoorDetector_stateToString(pDoorStatus->currentState),
-                    (unsigned int)pDoorStatus->totalOpenCount,
-                    (unsigned int)pDoorStatus->totalCloseCount,
-                    pDoorStatus->avgDoorDistance,
-                    (unsigned int)pDoorStatus->pointsInDoorZone,
-                    pDoorStatus->peakSnr);
-                if (statLen > 0)
+                if (pDoorStatus->vt100Mode)
                 {
-                    UART_writePolling(gMmwMssMCB.commandUartHandle, (uint8_t*)statBuf, statLen);
+                    /* On initial boot, send clear screen and hide cursor */
+                    if (!s_vt100Initialized)
+                    {
+                        const char *initSeq = "\x1B[2J\x1B[H\x1B[?25l";
+                        UART_writePolling(gMmwMssMCB.commandUartHandle, (uint8_t*)initSeq, (uint32_t)strlen(initSeq));
+                        s_vt100Initialized = 1;
+                    }
+
+                    /* Refresh VT100 dashboard every 5 frames (~500ms / 2Hz) or immediately on state change */
+                    if (pDoorStatus->stateChangedFlag || ((pDoorStatus->frameCount % 5) == 0))
+                    {
+                        uint32_t scrLen = DoorDetector_formatVt100Screen(s_vt100UartBuf, sizeof(s_vt100UartBuf));
+                        if (scrLen > 0)
+                        {
+                            UART_writePolling(gMmwMssMCB.commandUartHandle, (uint8_t*)s_vt100UartBuf, scrLen);
+                        }
+                    }
+                }
+                else
+                {
+                    s_vt100Initialized = 0;
+
+                    /* Raw Event Transition */
+                    if (pDoorStatus->stateChangedFlag)
+                    {
+                        char evtBuf[128];
+                        int evtLen = snprintf(evtBuf, sizeof(evtBuf),
+                            "\r\n>>> [EVENT] DOOR %s! (Total Opens: %u | Total Closes: %u) <<<\r\n",
+                            DoorDetector_stateToString(pDoorStatus->currentState),
+                            (unsigned int)pDoorStatus->totalOpenCount,
+                            (unsigned int)pDoorStatus->totalCloseCount);
+                        if (evtLen > 0)
+                        {
+                            UART_writePolling(gMmwMssMCB.commandUartHandle, (uint8_t*)evtBuf, (uint32_t)evtLen);
+                        }
+                    }
+
+                    /* Raw Periodic Telemetry (Every 10 frames = 1 second) */
+                    if ((pDoorStatus->frameCount % 10) == 0)
+                    {
+                        char statBuf[160];
+                        int statLen = snprintf(statBuf, sizeof(statBuf),
+                            "[DOOR] State: %s | Opens: %u | Closes: %u | Dist: %.2fm | Pts: %u | SNR: %.1fdB\r\n",
+                            DoorDetector_stateToString(pDoorStatus->currentState),
+                            (unsigned int)pDoorStatus->totalOpenCount,
+                            (unsigned int)pDoorStatus->totalCloseCount,
+                            pDoorStatus->avgDoorDistance,
+                            (unsigned int)pDoorStatus->pointsInDoorZone,
+                            pDoorStatus->peakSnr);
+                        if (statLen > 0)
+                        {
+                            UART_writePolling(gMmwMssMCB.commandUartHandle, (uint8_t*)statBuf, (uint32_t)statLen);
+                        }
+                    }
                 }
             }
         }

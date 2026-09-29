@@ -6,6 +6,7 @@
 #include "door_detector.h"
 #include <string.h>
 #include <math.h>
+#include <stdio.h>
 
 /* Module Control Block */
 static DoorDetector_Config_t gCfg;
@@ -15,6 +16,55 @@ static DoorDetector_Status_t gStatus;
 static uint32_t gCalibSamplesCount = 0;
 static float gCalibDistanceAccum = 0.0f;
 static float gCalibPeakSnrAccum = 0.0f;
+
+/* Helper to record event transitions in rolling history */
+static void DoorDetector_recordEvent(DoorState_e oldState, DoorState_e newState)
+{
+    int32_t idx;
+    for (idx = (int32_t)DOOR_EVENT_HISTORY_SIZE - 1; idx > 0; idx--)
+    {
+        gStatus.history[idx] = gStatus.history[idx - 1];
+    }
+    gStatus.history[0].prevState = oldState;
+    gStatus.history[0].newState = newState;
+    gStatus.history[0].frameNum = gStatus.frameCount;
+    gStatus.history[0].openCount = gStatus.totalOpenCount;
+    gStatus.history[0].closeCount = gStatus.totalCloseCount;
+    gStatus.history[0].distance = gStatus.avgDoorDistance;
+    gStatus.history[0].snr = gStatus.peakSnr;
+    if (gStatus.historyCount < DOOR_EVENT_HISTORY_SIZE)
+    {
+        gStatus.historyCount++;
+    }
+    gStatus.stateDurationMs = 0;
+}
+
+/* Helper to generate visual ASCII gauge bar */
+static void DoorDetector_makeBar(char *bar, int barLen, float val, float maxVal)
+{
+    int filled;
+    int i;
+    if (val < 0.0f) val = 0.0f;
+    if (val > maxVal) val = maxVal;
+    filled = (int)((val / maxVal) * (float)barLen);
+    if (filled > barLen) filled = barLen;
+    for (i = 0; i < barLen; i++)
+    {
+        if (i < filled)
+        {
+            bar[i] = '=';
+        }
+        else if (i == filled)
+        {
+            bar[i] = '>';
+        }
+        else
+        {
+            bar[i] = ' ';
+        }
+    }
+    bar[barLen] = '\0';
+}
 
 void DoorDetector_init(const DoorDetector_Config_t *cfg)
 {
@@ -44,6 +94,9 @@ void DoorDetector_init(const DoorDetector_Config_t *cfg)
     gStatus.currentState = DOOR_STATE_UNKNOWN;
     gStatus.candidateState = DOOR_STATE_UNKNOWN;
     gStatus.isCalibrated = (gCfg.autoCalibrate == 0) ? 1 : 0;
+    gStatus.vt100Mode = 1;                  /* VT100 dashboard enabled by default */
+    gStatus.historyCount = 0;
+    gStatus.stateDurationMs = 0;
     gCalibSamplesCount = 0;
     gCalibDistanceAccum = 0.0f;
     gCalibPeakSnrAccum = 0.0f;
@@ -135,6 +188,8 @@ void DoorDetector_processFrame(
         gStatus.candidateState = DOOR_STATE_OPEN;
     }
 
+    gStatus.stateDurationMs += framePeriodMs;
+
     /* State Machine with Hysteresis & Debouncing */
     switch (gStatus.currentState)
     {
@@ -143,11 +198,13 @@ void DoorDetector_processFrame(
             {
                 gStatus.currentState = DOOR_STATE_CLOSED;
                 gStatus.stateChangedFlag = 1;
+                DoorDetector_recordEvent(DOOR_STATE_UNKNOWN, DOOR_STATE_CLOSED);
             }
             else
             {
                 gStatus.currentState = DOOR_STATE_OPEN;
                 gStatus.stateChangedFlag = 1;
+                DoorDetector_recordEvent(DOOR_STATE_UNKNOWN, DOOR_STATE_OPEN);
             }
             gStatus.openDebounceCounter = 0;
             gStatus.closeDebounceCounter = 0;
@@ -166,6 +223,7 @@ void DoorDetector_processFrame(
                     gStatus.stateChangedFlag = 1;
                     gStatus.openDurationMs = 0;
                     gStatus.openDebounceCounter = 0;
+                    DoorDetector_recordEvent(DOOR_STATE_CLOSED, DOOR_STATE_OPEN);
                 }
             }
             else
@@ -189,6 +247,7 @@ void DoorDetector_processFrame(
                     gStatus.totalCloseCount++;
                     gStatus.stateChangedFlag = 1;
                     gStatus.closeDebounceCounter = 0;
+                    DoorDetector_recordEvent(DOOR_STATE_OPEN, DOOR_STATE_CLOSED);
                 }
             }
             else
@@ -214,8 +273,10 @@ void DoorDetector_resetCounters(void)
     gStatus.totalOpenCount = 0;
     gStatus.totalCloseCount = 0;
     gStatus.openDurationMs = 0;
+    gStatus.stateDurationMs = 0;
     gStatus.openDebounceCounter = 0;
     gStatus.closeDebounceCounter = 0;
+    gStatus.historyCount = 0;
 }
 
 void DoorDetector_triggerCalibration(void)
@@ -236,4 +297,131 @@ const char* DoorDetector_stateToString(DoorState_e state)
         case DOOR_STATE_CLOSING: return "CLOSING";
         default:                 return "UNKNOWN";
     }
+}
+
+void DoorDetector_setVt100Mode(uint8_t enable)
+{
+    gStatus.vt100Mode = enable ? 1 : 0;
+}
+
+uint8_t DoorDetector_getVt100Mode(void)
+{
+    return gStatus.vt100Mode;
+}
+
+#define VT100_APPEND(...) do { \
+    int32_t written = snprintf(outBuf + offset, (offset < (int32_t)maxLen) ? (maxLen - offset) : 0, __VA_ARGS__); \
+    if (written > 0) offset += written; \
+} while(0)
+
+uint32_t DoorDetector_formatVt100Screen(char *outBuf, uint32_t maxLen)
+{
+    int32_t offset = 0;
+    uint32_t totalSec = gStatus.stateDurationMs / 1000U;
+    uint32_t hh = totalSec / 3600U;
+    uint32_t mm = (totalSec % 3600U) / 60U;
+    uint32_t ss = totalSec % 60U;
+    uint32_t k;
+    char distBar[16];
+    char snrBar[16];
+
+    DoorDetector_makeBar(distBar, 14, gStatus.avgDoorDistance, 2.5f);
+    DoorDetector_makeBar(snrBar, 14, gStatus.peakSnr, 30.0f);
+
+    /* Move cursor to row 1, col 1 and hide cursor */
+    VT100_APPEND("\x1B[H\x1B[?25l");
+
+    /* Header */
+    VT100_APPEND("\x1B[1;36m+-----------------------------------------------------------------------------+\x1B[0m\x1B[K\r\n");
+    VT100_APPEND("\x1B[1;36m|      TI AWR1843BOOST mmWave Radar - Standalone Door Monitor [VT100]         |\x1B[0m\x1B[K\r\n");
+    VT100_APPEND("\x1B[1;36m|         FMCW 77 GHz  |  10 Hz Telemetry  |  On-Chip Real-Time Processing    |\x1B[0m\x1B[K\r\n");
+    VT100_APPEND("\x1B[1;36m+-----------------------------------------------------------------------------+\x1B[0m\x1B[K\r\n");
+
+    /* Status Banner */
+    if (gStatus.currentState == DOOR_STATE_CLOSED)
+    {
+        VT100_APPEND("\x1B[1;32m|  CURRENT STATUS : [  DOOR CLOSED  ]        LED DS3 : OFF (Secure)           |\x1B[0m\x1B[K\r\n");
+    }
+    else if (gStatus.currentState == DOOR_STATE_OPEN)
+    {
+        VT100_APPEND("\x1B[1;31m|  CURRENT STATUS : [   DOOR OPEN   ]        LED DS3 : ON  (Passage Active!)  |\x1B[0m\x1B[K\r\n");
+    }
+    else if (!gStatus.isCalibrated)
+    {
+        VT100_APPEND("\x1B[1;33m|  CURRENT STATUS : [ CALIBRATING... ]       Keep door closed for ~2 seconds   |\x1B[0m\x1B[K\r\n");
+    }
+    else
+    {
+        VT100_APPEND("\x1B[1;33m|  CURRENT STATUS : [    UNKNOWN    ]        Awaiting radar frame detections  |\x1B[0m\x1B[K\r\n");
+    }
+
+    /* Sub-panels: Visual Graphic & Metrics */
+    VT100_APPEND("\x1B[1;36m+-------------------+---------------------------------------------------------+\x1B[0m\x1B[K\r\n");
+    VT100_APPEND("\x1B[1;36m| DOOR VISUAL       | RADAR SENSING METRICS & PASSAGE STATISTICS              |\x1B[0m\x1B[K\r\n");
+    VT100_APPEND("\x1B[1;36m+-------------------+---------------------------------------------------------+\x1B[0m\x1B[K\r\n");
+
+    if (gStatus.currentState == DOOR_STATE_CLOSED)
+    {
+        VT100_APPEND("|   +-----------+   | Target Distance : %5.2f m   | Total Openings : %-8u |\x1B[K\r\n", gStatus.avgDoorDistance, (unsigned int)gStatus.totalOpenCount);
+        VT100_APPEND("|   |   |   |   |   | Distance Gauge  : [%s] | Total Closings : %-8u |\x1B[K\r\n", distBar, (unsigned int)gStatus.totalCloseCount);
+        VT100_APPEND("|   |   | . |   |   | Peak Reflection : %5.1f dB  | Time In State  : %02u:%02u:%02u |\x1B[K\r\n", gStatus.peakSnr, (unsigned int)hh, (unsigned int)mm, (unsigned int)ss);
+        VT100_APPEND("|   |   |   |   |   | SNR Gauge       : [%s] | Debounce Filter: 500 ms   |\x1B[K\r\n", snrBar);
+        VT100_APPEND("|   +-----------+   | Points in ROI   : %3u points | Frame Count    : %-8u |\x1B[K\r\n", (unsigned int)gStatus.pointsInDoorZone, (unsigned int)gStatus.frameCount);
+        VT100_APPEND("|   [DOOR CLOSED]   | Auto-Baseline   : %-10s | Radar State    : ACTIVE   |\x1B[K\r\n", gStatus.isCalibrated ? "LOCKED (OK)" : "CALIB...");
+    }
+    else
+    {
+        VT100_APPEND("|   +           +   | Target Distance :   --- m     | Total Openings : %-8u |\x1B[K\r\n", (unsigned int)gStatus.totalOpenCount);
+        VT100_APPEND("|    \\         /    | Distance Gauge  : [%s] | Total Closings : %-8u |\x1B[K\r\n", distBar, (unsigned int)gStatus.totalCloseCount);
+        VT100_APPEND("|     \\   .   /     | Peak Reflection : %5.1f dB  | Time In State  : %02u:%02u:%02u |\x1B[K\r\n", gStatus.peakSnr, (unsigned int)hh, (unsigned int)mm, (unsigned int)ss);
+        VT100_APPEND("|      \\     /      | SNR Gauge       : [%s] | Debounce Filter: 500 ms   |\x1B[K\r\n", snrBar);
+        VT100_APPEND("|   +           +   | Points in ROI   : %3u points | Frame Count    : %-8u |\x1B[K\r\n", (unsigned int)gStatus.pointsInDoorZone, (unsigned int)gStatus.frameCount);
+        VT100_APPEND("|    [DOOR OPEN]    | Auto-Baseline   : %-10s | Radar State    : ACTIVE   |\x1B[K\r\n", gStatus.isCalibrated ? "LOCKED (OK)" : "CALIB...");
+    }
+
+    /* Event History Table */
+    VT100_APPEND("\x1B[1;36m+-------------------+---------------------------------------------------------+\x1B[0m\x1B[K\r\n");
+    VT100_APPEND("\x1B[1;36m| RECENT EVENT TRANSITION HISTORY                                             |\x1B[0m\x1B[K\r\n");
+    VT100_APPEND("\x1B[1;36m+----+-------------+--------------+--------+--------+------------+------------+\x1B[0m\x1B[K\r\n");
+    VT100_APPEND("\x1B[1;36m| #  | Event       | Transition   | Opens  | Closes | Distance   | Peak SNR   |\x1B[0m\x1B[K\r\n");
+    VT100_APPEND("\x1B[1;36m+----+-------------+--------------+--------+--------+------------+------------+\x1B[0m\x1B[K\r\n");
+
+    if (gStatus.historyCount == 0)
+    {
+        VT100_APPEND("| -- | No state transitions recorded yet. Monitoring doorway zone...        |\x1B[K\r\n");
+    }
+    else
+    {
+        for (k = 0; k < gStatus.historyCount; k++)
+        {
+            const DoorEventRecord_t *rec = &gStatus.history[k];
+            const char *evtStr = (rec->newState == DOOR_STATE_OPEN) ? "DOOR OPEN " : "DOOR CLOSE";
+            const char *transStr = (rec->newState == DOOR_STATE_OPEN) ? "CLOSE->OPEN" : "OPEN->CLOSE";
+            char distStr[16];
+            if ((rec->newState == DOOR_STATE_CLOSED) && (rec->distance > 0.05f))
+            {
+                snprintf(distStr, sizeof(distStr), "%5.2f m", rec->distance);
+            }
+            else
+            {
+                snprintf(distStr, sizeof(distStr), "  --- m ");
+            }
+            VT100_APPEND("| %-2u | %-11s | %-12s | %-6u | %-6u | %-10s | %5.1f dB  |\x1B[K\r\n",
+                (unsigned int)(k + 1), evtStr, transStr,
+                (unsigned int)rec->openCount, (unsigned int)rec->closeCount,
+                distStr, rec->snr);
+        }
+    }
+
+    /* Command prompt footer */
+    VT100_APPEND("\x1B[1;36m+----+-------------+--------------+--------+--------+------------+------------+\x1B[0m\x1B[K\r\n");
+    VT100_APPEND("| COMMANDS: [r] Reset Counters  |  [c] Recalibrate  |  [t] Toggle VT100/Raw   |\x1B[K\r\n");
+    VT100_APPEND("\x1B[1;36m+-----------------------------------------------------------------------------+\x1B[0m\x1B[K\r\n");
+
+    if (offset >= (int32_t)maxLen)
+    {
+        offset = (int32_t)maxLen - 1;
+        outBuf[offset] = '\0';
+    }
+    return (uint32_t)offset;
 }

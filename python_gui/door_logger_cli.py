@@ -37,12 +37,19 @@ def main():
     parser.add_argument("--baud", type=int, default=115200, help="Baud rate (default: 115200)")
     parser.add_argument("--csv", type=str, default="door_events_log.csv", help="CSV log filename")
     parser.add_argument("--cfg", type=str, default=None, help="Optional .cfg file to send on connect")
+    parser.add_argument("--vt100", action="store_true", help="Launch interactive live VT100 dashboard")
     args = parser.parse_args()
 
     port = args.port or auto_detect_port()
     if not port:
         print("[!] Error: No serial port found. Connect your AWR1843BOOST and retry.")
         sys.exit(1)
+
+    if args.vt100:
+        from door_vt100 import DoorVT100Monitor
+        monitor = DoorVT100Monitor(port=port, baud=args.baud, csv_path=args.csv)
+        monitor.run()
+        return
 
     print("=" * 65)
     print("  TI AWR1843BOOST STANDALONE DOOR SENSOR LOGGER")

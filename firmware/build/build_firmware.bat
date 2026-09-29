@@ -14,7 +14,9 @@ set MMWAVE_SDK_DEVICE_TYPE=xwr18xx
 set DOWNLOAD_FROM_CCS=yes
 
 echo [*] Initializing TI mmWave SDK Build Environment...
-call C:\ti\mmwave_sdk_03_06_02_00-LTS\packages\scripts\windows\setenv.bat
+pushd C:\ti\mmwave_sdk_03_06_02_00-LTS\packages\scripts\windows
+call setenv.bat
+popd
 if %ERRORLEVEL% NEQ 0 (
     echo [!] ERROR: Failed to configure build environment.
     goto error

@@ -109,12 +109,52 @@ python python_gui/door_logger_cli.py --port COM3 --csv door_activity_log.csv
 
 ---
 
+## 📺 Live Running UART VT100 Console
+
+The system features a **live running VT100/ANSI terminal dashboard** that transforms your serial terminal into an interactive, real-time radar instrument with dynamic ASCII door graphics, live meters, and rolling transition logs.
+
+### Option A: Direct Hardware VT100 Console (No Python Required!)
+Because the VT100 engine runs **directly on the AWR1843 ARM MCU**, you can simply connect any standard serial terminal emulator directly to the sensor:
+
+1. Connect AWR1843BOOST to your PC via USB.
+2. Open **PuTTY**, **Tera Term**, **minicom**, or **Windows Terminal**:
+   - **Port**: XDS110 Application/User UART (e.g., `COM3` or `/dev/ttyACM0`)
+   - **Baud Rate**: `115200`
+   - **Terminal Emulation**: `VT100` / `ANSI`
+3. The board automatically displays a live updating, colored dashboard:
+   - **Green `[ DOOR CLOSED ]`** with closed door ASCII art when secured
+   - **Red `[ DOOR OPEN ]`** with open door passage animation when opened
+   - Live distance & SNR gauges `[=========>     ]`
+   - Cumulative cycle counters & uptime duration
+   - Rolling transition event table
+
+### Option B: Python VT100 Terminal Monitor
+Alternatively, run the dedicated Python VT100 console application in your favorite terminal (PowerShell, CMD, Bash, zsh):
+
+```bash
+# Launch the live interactive VT100 monitor (auto-detects COM port):
+python python_gui/door_vt100.py
+
+# Or launch via the logger CLI:
+python python_gui/door_logger_cli.py --vt100
+```
+
+**Interactive Hotkeys:**
+- `r` : Reset cycle counters back to 0
+- `c` : Re-trigger automatic closed-door calibration
+- `b` : Toggle audible beep on door opening
+- `t` : Toggle firmware VT100 mode
+- `q` : Exit cleanly
+
+---
+
 ## 🛠️ Custom CLI Commands
 
-When connected to any serial terminal (e.g., PuTTY, Tera Term, minicom) at **115200 baud**, the firmware supports custom interactive commands:
+When connected to any serial terminal at **115200 baud**, the firmware supports custom interactive commands:
 
 | Command | Syntax | Description |
 |---|---|---|
+| `vt100` | `vt100 [0\|1]` | Toggle between Live VT100 full-screen dashboard (1) and raw one-line logs (0) |
 | `doorStatus` | `doorStatus` | Prints current door state, total opens, closes, distance, SNR |
 | `resetCounters` | `resetCounters` | Resets the cumulative open and close counters back to 0 |
 | `calibrate` | `calibrate` | Re-runs the closed door distance calibration |

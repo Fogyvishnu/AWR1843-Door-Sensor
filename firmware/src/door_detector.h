@@ -47,6 +47,21 @@ typedef struct {
     uint16_t calibFrameCount;    /**< Number of frames for auto-calibration (e.g. 30 = 3s) */
 } DoorDetector_Config_t;
 
+#define DOOR_EVENT_HISTORY_SIZE 4
+
+/**
+ * @brief Transition event log record
+ */
+typedef struct {
+    DoorState_e prevState;
+    DoorState_e newState;
+    uint32_t frameNum;
+    uint32_t openCount;
+    uint32_t closeCount;
+    float distance;
+    float snr;
+} DoorEventRecord_t;
+
 /**
  * @brief Live telemetry and statistics
  */
@@ -62,8 +77,12 @@ typedef struct {
     float avgDoorDistance;       /**< Average distance of door points in meters */
     float peakSnr;               /**< Maximum SNR inside door zone */
     uint32_t openDurationMs;     /**< Milliseconds spent in current OPEN state */
+    uint32_t stateDurationMs;    /**< Total milliseconds spent in current state */
     uint8_t isCalibrated;        /**< 1 if auto-calibration is complete */
     uint8_t stateChangedFlag;    /**< 1 if state transitioned on the current frame */
+    uint8_t vt100Mode;           /**< 1: VT100 full-screen dashboard, 0: raw line log */
+    DoorEventRecord_t history[DOOR_EVENT_HISTORY_SIZE]; /**< Recent event records */
+    uint8_t historyCount;        /**< Count of valid history entries */
 } DoorDetector_Status_t;
 
 /**
@@ -96,6 +115,9 @@ const DoorDetector_Status_t* DoorDetector_getStatus(void);
 void DoorDetector_resetCounters(void);
 void DoorDetector_triggerCalibration(void);
 const char* DoorDetector_stateToString(DoorState_e state);
+void DoorDetector_setVt100Mode(uint8_t enable);
+uint8_t DoorDetector_getVt100Mode(void);
+uint32_t DoorDetector_formatVt100Screen(char *outBuf, uint32_t maxLen);
 
 #ifdef __cplusplus
 }
