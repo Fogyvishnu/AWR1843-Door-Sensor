@@ -1,6 +1,7 @@
 /**
  * @file  door_detector.c
  * @brief Standalone Door Open/Close Detector and Event Counter Implementation
+ * @version 1.3.0
  */
 
 #include "door_detector.h"
@@ -11,11 +12,15 @@
 /* Module Control Block */
 static DoorDetector_Config_t gCfg;
 static DoorDetector_Status_t gStatus;
+static DoorDiagnostics_t     gDiagnostics;
 
 /* Internal calibration accumulator */
 static uint32_t gCalibSamplesCount = 0;
 static float gCalibDistanceAccum = 0.0f;
 static float gCalibPeakSnrAccum = 0.0f;
+
+/* Uptime accumulator in milliseconds */
+static uint32_t gUptimeAccumMs = 0;
 
 /* Helper to record event transitions in rolling history */
 static void DoorDetector_recordEvent(DoorState_e oldState, DoorState_e newState)
@@ -66,22 +71,76 @@ static void DoorDetector_makeBar(char *bar, int barLen, float val, float maxVal)
     bar[barLen] = '\0';
 }
 
-void DoorDetector_init(const DoorDetector_Config_t *cfg)
+DoorResult_e DoorDetector_validateConfig(const DoorDetector_Config_t *cfg)
+{
+    if (cfg == NULL)
+    {
+        return DOOR_ERR_NULL_POINTER;
+    }
+
+    if ((cfg->rangeMin < DOOR_RANGE_MIN_LIMIT) || (cfg->rangeMax > DOOR_RANGE_MAX_LIMIT))
+    {
+        return DOOR_ERR_INVALID_PARAM;
+    }
+
+    if (cfg->rangeMax <= (cfg->rangeMin + 0.05f))
+    {
+        return DOOR_ERR_INVALID_PARAM;
+    }
+
+    if ((cfg->xMin >= cfg->xMax) || (fabsf(cfg->xMin) > DOOR_LATERAL_MAX_LIMIT) || (fabsf(cfg->xMax) > DOOR_LATERAL_MAX_LIMIT))
+    {
+        return DOOR_ERR_INVALID_PARAM;
+    }
+
+    if ((cfg->zMin >= cfg->zMax) || (fabsf(cfg->zMin) > DOOR_ELEVATION_MAX_LIMIT) || (fabsf(cfg->zMax) > DOOR_ELEVATION_MAX_LIMIT))
+    {
+        return DOOR_ERR_INVALID_PARAM;
+    }
+
+    if ((cfg->debounceOpenFrames < DOOR_MIN_DEBOUNCE_FRAMES) || (cfg->debounceOpenFrames > DOOR_MAX_DEBOUNCE_FRAMES))
+    {
+        return DOOR_ERR_INVALID_PARAM;
+    }
+
+    if ((cfg->debounceCloseFrames < DOOR_MIN_DEBOUNCE_FRAMES) || (cfg->debounceCloseFrames > DOOR_MAX_DEBOUNCE_FRAMES))
+    {
+        return DOOR_ERR_INVALID_PARAM;
+    }
+
+    if (cfg->autoCalibrate && ((cfg->calibFrameCount < 5U) || (cfg->calibFrameCount > 200U)))
+    {
+        return DOOR_ERR_INVALID_PARAM;
+    }
+
+    return DOOR_OK;
+}
+
+DoorResult_e DoorDetector_init(const DoorDetector_Config_t *cfg)
 {
     memset(&gStatus, 0, sizeof(gStatus));
+    memset(&gDiagnostics, 0, sizeof(gDiagnostics));
+
+    gDiagnostics.healthStatus = DOOR_HEALTH_OK;
+    gUptimeAccumMs = 0;
 
     if (cfg != NULL)
     {
+        DoorResult_e res = DoorDetector_validateConfig(cfg);
+        if (res != DOOR_OK)
+        {
+            return res;
+        }
         memcpy(&gCfg, cfg, sizeof(DoorDetector_Config_t));
     }
     else
     {
-        /* Default configuration: sensor placed 0.5m - 1.5m facing the door */
+        /* Factory Default configuration: sensor placed 0.4m - 1.8m facing the door */
         gCfg.rangeMin = 0.40f;              /* 40 cm min distance */
         gCfg.rangeMax = 1.80f;              /* 180 cm max distance */
         gCfg.xMin = -0.80f;                 /* +/- 80 cm width coverage */
         gCfg.xMax = 0.80f;
-        gCfg.zMin = -1.00f;
+        gCfg.zMin = -1.00f;                 /* +/- 1.0 m elevation coverage */
         gCfg.zMax = 1.00f;
         gCfg.minPoints = 1;                 /* At least 1 CFAR detection point in zone */
         gCfg.minSnr = 10.0f;                /* 10 dB min SNR */
@@ -100,6 +159,28 @@ void DoorDetector_init(const DoorDetector_Config_t *cfg)
     gCalibSamplesCount = 0;
     gCalibDistanceAccum = 0.0f;
     gCalibPeakSnrAccum = 0.0f;
+
+    return DOOR_OK;
+}
+
+DoorResult_e DoorDetector_setConfig(const DoorDetector_Config_t *cfg)
+{
+    DoorResult_e res = DoorDetector_validateConfig(cfg);
+    if (res == DOOR_OK)
+    {
+        memcpy(&gCfg, cfg, sizeof(DoorDetector_Config_t));
+    }
+    return res;
+}
+
+DoorResult_e DoorDetector_getConfig(DoorDetector_Config_t *cfg)
+{
+    if (cfg == NULL)
+    {
+        return DOOR_ERR_NULL_POINTER;
+    }
+    memcpy(cfg, &gCfg, sizeof(DoorDetector_Config_t));
+    return DOOR_OK;
 }
 
 void DoorDetector_processFrame(
@@ -116,36 +197,58 @@ void DoorDetector_processFrame(
 
     gStatus.frameCount++;
     gStatus.stateChangedFlag = 0;
+    gDiagnostics.totalFramesProcessed++;
+    gDiagnostics.totalPointsAnalyzed += numPoints;
+
+    gUptimeAccumMs += framePeriodMs;
+    gDiagnostics.uptimeSeconds = gUptimeAccumMs / 1000U;
+
+    if (numPoints > gDiagnostics.maxPointsInFrame)
+    {
+        gDiagnostics.maxPointsInFrame = numPoints;
+    }
 
     /* Scan all detected points from the radar data path */
-    for (i = 0; i < numPoints; i++)
+    if ((points != NULL) && (numPoints > 0))
     {
-        float x = points[i].x;
-        float y = points[i].y; /* Depth / range along sensor boresight */
-        float z = points[i].z;
-
-        /* Range from sensor: sqrt(x^2 + y^2 + z^2) or radial distance */
-        float dist = sqrtf(x * x + y * y + z * z);
-
-        /* Check if point falls inside configured Door Region of Interest (ROI) */
-        if ((dist >= gCfg.rangeMin) && (dist <= gCfg.rangeMax) &&
-            (x >= gCfg.xMin) && (x <= gCfg.xMax) &&
-            (z >= gCfg.zMin) && (z <= gCfg.zMax))
+        for (i = 0; i < numPoints; i++)
         {
-            float snrDb = 0.0f;
-            if (sideInfo != NULL)
-            {
-                snrDb = (float)sideInfo[i].snr * 0.1f;
-            }
+            float x = points[i].x;
+            float y = points[i].y; /* Depth / range along sensor boresight */
+            float z = points[i].z;
 
-            doorPointsCount++;
-            sumDistance += dist;
+            /* Range from sensor: Euclidean radial distance */
+            float dist = sqrtf(x * x + y * y + z * z);
 
-            if (snrDb > maxSnr)
+            /* Check if point falls inside configured Door Region of Interest (ROI) */
+            if ((dist >= gCfg.rangeMin) && (dist <= gCfg.rangeMax) &&
+                (x >= gCfg.xMin) && (x <= gCfg.xMax) &&
+                (z >= gCfg.zMin) && (z <= gCfg.zMax))
             {
-                maxSnr = snrDb;
+                float snrDb = 0.0f;
+                if (sideInfo != NULL)
+                {
+                    snrDb = (float)sideInfo[i].snr * 0.1f;
+                }
+
+                /* Enforce minimum SNR threshold for clutter rejection */
+                if ((sideInfo == NULL) || (snrDb >= gCfg.minSnr))
+                {
+                    doorPointsCount++;
+                    sumDistance += dist;
+
+                    if (snrDb > maxSnr)
+                    {
+                        maxSnr = snrDb;
+                    }
+                }
             }
         }
+    }
+
+    if (maxSnr > gDiagnostics.maxObservedSnr)
+    {
+        gDiagnostics.maxObservedSnr = maxSnr;
     }
 
     gStatus.pointsInDoorZone = doorPointsCount;
@@ -167,13 +270,16 @@ void DoorDetector_processFrame(
 
         if (gCalibSamplesCount >= gCfg.calibFrameCount)
         {
-            /* Complete calibration */
-            float calibDist = gCalibDistanceAccum / (float)gCalibSamplesCount;
-            gCfg.rangeMin = (calibDist - 0.30f > 0.15f) ? (calibDist - 0.30f) : 0.15f;
-            gCfg.rangeMax = calibDist + 0.35f;
-            gStatus.isCalibrated = 1;
-            gStatus.currentState = DOOR_STATE_CLOSED;
-            gStatus.candidateState = DOOR_STATE_CLOSED;
+            /* Complete calibration if samples were acquired */
+            if (gCalibSamplesCount > 0)
+            {
+                float calibDist = gCalibDistanceAccum / (float)gCalibSamplesCount;
+                gCfg.rangeMin = (calibDist - 0.30f > DOOR_RANGE_MIN_LIMIT) ? (calibDist - 0.30f) : DOOR_RANGE_MIN_LIMIT;
+                gCfg.rangeMax = calibDist + 0.35f;
+                gStatus.isCalibrated = 1;
+                gStatus.currentState = DOOR_STATE_CLOSED;
+                gStatus.candidateState = DOOR_STATE_CLOSED;
+            }
         }
         return;
     }
@@ -268,6 +374,26 @@ const DoorDetector_Status_t* DoorDetector_getStatus(void)
     return &gStatus;
 }
 
+DoorResult_e DoorDetector_getSnapshot(DoorDetector_Status_t *outSnapshot)
+{
+    if (outSnapshot == NULL)
+    {
+        return DOOR_ERR_NULL_POINTER;
+    }
+    memcpy(outSnapshot, &gStatus, sizeof(DoorDetector_Status_t));
+    return DOOR_OK;
+}
+
+DoorResult_e DoorDetector_getDiagnostics(DoorDiagnostics_t *diag)
+{
+    if (diag == NULL)
+    {
+        return DOOR_ERR_NULL_POINTER;
+    }
+    memcpy(diag, &gDiagnostics, sizeof(DoorDiagnostics_t));
+    return DOOR_OK;
+}
+
 void DoorDetector_resetCounters(void)
 {
     gStatus.totalOpenCount = 0;
@@ -324,6 +450,11 @@ uint32_t DoorDetector_formatVt100Screen(char *outBuf, uint32_t maxLen)
     uint32_t k;
     char distBar[16];
     char snrBar[16];
+
+    if ((outBuf == NULL) || (maxLen == 0))
+    {
+        return 0;
+    }
 
     DoorDetector_makeBar(distBar, 14, gStatus.avgDoorDistance, 2.5f);
     DoorDetector_makeBar(snrBar, 14, gStatus.peakSnr, 30.0f);

@@ -370,29 +370,54 @@ class DoorVT100Monitor:
                     if self.ser and self.ser.is_open:
                         self.ser.write(b"vt100\n")
 
-                # Read UART bytes
-                if self.ser and self.ser.in_waiting > 0:
-                    raw_bytes = self.ser.read(self.ser.in_waiting)
-                    text = raw_bytes.decode("utf-8", errors="replace")
+                # Read UART bytes with auto-reconnection on disconnect
+                try:
+                    if self.ser and self.ser.is_open:
+                        if self.ser.in_waiting > 0:
+                            raw_bytes = self.ser.read(self.ser.in_waiting)
+                            text = raw_bytes.decode("utf-8", errors="replace")
 
-                    # If firmware is already emitting VT100 escape codes directly
-                    if "\x1b[H" in text or "\x1b[2J" in text or is_direct_vt100:
-                        is_direct_vt100 = True
-                        sys.stdout.write(text)
-                        sys.stdout.flush()
-                        # Extract event logging to CSV if any
-                        if "EVENT" in text:
-                            if "DOOR OPEN" in text:
-                                self.record_transition("OPEN")
-                            elif "DOOR CLOSED" in text:
-                                self.record_transition("CLOSED")
-                        time.sleep(0.01)
-                        continue
+                            # If firmware is already emitting VT100 escape codes directly
+                            if "\x1b[H" in text or "\x1b[2J" in text or is_direct_vt100:
+                                is_direct_vt100 = True
+                                sys.stdout.write(text)
+                                sys.stdout.flush()
+                                # Extract event logging to CSV if any
+                                if "EVENT" in text:
+                                    if "DOOR OPEN" in text:
+                                        self.record_transition("OPEN")
+                                    elif "DOOR CLOSED" in text:
+                                        self.record_transition("CLOSED")
+                                time.sleep(0.01)
+                                continue
 
-                    line_buffer += text
-                    while "\n" in line_buffer:
-                        line, line_buffer = line_buffer.split("\n", 1)
-                        self.parse_line(line)
+                            line_buffer += text
+                            while "\n" in line_buffer:
+                                line, line_buffer = line_buffer.split("\n", 1)
+                                self.parse_line(line)
+                    else:
+                        # Attempt reconnection
+                        time.sleep(1.0)
+                        self.connect()
+                except Exception as e:
+                    # Connection lost, retry
+                    if self.ser:
+                        try:
+                            self.ser.close()
+                        except Exception:
+                            pass
+                        self.ser = None
+                    self.door_state = "RECONNECTING"
+                    self.render_dashboard()
+                    time.sleep(1.5)
+                    detected = auto_detect_port()
+                    if detected:
+                        self.port = detected
+                    try:
+                        self.connect()
+                    except Exception:
+                        pass
+                    continue
 
                 # Render dashboard at up to 10 Hz when parsing line stream
                 if not is_direct_vt100 and (time.time() - last_render) >= 0.10:

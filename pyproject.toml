@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "awr1843-door-sensor"
+version = "1.3.0"
+description = "Industrial-grade standalone mmWave radar door open/close detector and cycle counter for TI AWR1843BOOST"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [
+    { name = "Vishnu Prashanth" }
+]
+keywords = [
+    "ti",
+    "awr1843",
+    "mmwave",
+    "radar",
+    "door-sensor",
+    "edge-ai",
+    "fmcw",
+    "vt100",
+    "home-assistant",
+    "mqtt"
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Topic :: System :: Hardware",
+    "Topic :: Home Automation",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12"
+]
+dependencies = [
+    "pyserial>=3.5"
+]
+
+[project.optional-dependencies]
+mqtt = [
+    "paho-mqtt>=1.6.1"
+]
+dev = [
+    "pytest>=7.0",
+    "flake8>=6.0",
+    "black>=23.0"
+]
+
+[project.urls]
+Homepage = "https://github.com/Fogyvishnu/AWR1843-Door-Sensor"
+Repository = "https://github.com/Fogyvishnu/AWR1843-Door-Sensor.git"
+Documentation = "https://github.com/Fogyvishnu/AWR1843-Door-Sensor/tree/main/docs"
+
+[project.scripts]
+awr1843-door-gui = "door_monitor_gui:main"
+awr1843-door-cli = "door_logger_cli:main"
+awr1843-door-vt100 = "door_vt100:main"
+awr1843-door-mqtt = "door_mqtt_bridge:main"
+
+[tool.setuptools.package-dir]
+"" = "python_gui"
