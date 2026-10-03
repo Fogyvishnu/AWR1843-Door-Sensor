@@ -268,16 +268,42 @@ class DoorMqttBridge:
         state_changed = False
 
         if "EVENT: Door Opened" in line or "EVENT] DOOR OPEN" in line:
+            if "Total Opens:" in line:
+                try:
+                    self.total_opens = int(line.split("Total Opens:")[1].split("|")[0].strip())
+                except (ValueError, IndexError):
+                    pass
+            elif self.door_state != "OPEN":
+                self.total_opens += 1
+
+            if "Total Closes:" in line:
+                try:
+                    self.total_closes = int(line.split("Total Closes:")[1].split(")")[0].strip())
+                except (ValueError, IndexError):
+                    pass
+
             if self.door_state != "OPEN":
                 self.door_state = "OPEN"
-                self.total_opens += 1
                 state_changed = True
                 logger.info(f">>> EVENT: DOOR OPENED! (Total Opens: {self.total_opens}) <<<")
 
-        elif "EVENT: Door Closed" in line or "EVENT] DOOR CLOSED" in line:
+        elif "EVENT: Door Closed" in line or "EVENT] DOOR CLOSE" in line:
+            if "Total Opens:" in line:
+                try:
+                    self.total_opens = int(line.split("Total Opens:")[1].split("|")[0].strip())
+                except (ValueError, IndexError):
+                    pass
+
+            if "Total Closes:" in line:
+                try:
+                    self.total_closes = int(line.split("Total Closes:")[1].split(")")[0].strip())
+                except (ValueError, IndexError):
+                    pass
+            elif self.door_state != "CLOSED":
+                self.total_closes += 1
+
             if self.door_state != "CLOSED":
                 self.door_state = "CLOSED"
-                self.total_closes += 1
                 state_changed = True
                 logger.info(f">>> EVENT: DOOR CLOSED! (Total Closes: {self.total_closes}) <<<")
 

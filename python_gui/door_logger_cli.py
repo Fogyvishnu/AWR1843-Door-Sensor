@@ -128,14 +128,36 @@ def main():
                                 except ValueError:
                                     pass
 
-                    elif "EVENT: Door Opened" in line or "DOOR OPENED" in line:
-                        total_opens += 1
+                    elif any(pat in line for pat in ["[EVENT] DOOR OPEN", "EVENT: Door Opened", "DOOR OPENED"]):
+                        if "Total Opens:" in line:
+                            try:
+                                total_opens = int(line.split("Total Opens:")[1].split("|")[0].strip())
+                            except Exception:
+                                total_opens += 1
+                        else:
+                            total_opens += 1
+                        if "Total Closes:" in line:
+                            try:
+                                total_closes = int(line.split("Total Closes:")[1].split(")")[0].strip())
+                            except Exception:
+                                pass
                         door_state = "OPEN"
                         print(f"\n>>> [{now_str}] EVENT: DOOR OPENED! (Total Opens: {total_opens}) <<<\n")
                         csv_writer.writerow([now_str, "DOOR_OPENED", door_state, total_opens, total_closes, ""])
 
-                    elif "EVENT: Door Closed" in line or "DOOR CLOSED" in line:
-                        total_closes += 1
+                    elif any(pat in line for pat in ["[EVENT] DOOR CLOSE", "EVENT: Door Closed", "DOOR CLOSED"]):
+                        if "Total Closes:" in line:
+                            try:
+                                total_closes = int(line.split("Total Closes:")[1].split(")")[0].strip())
+                            except Exception:
+                                total_closes += 1
+                        else:
+                            total_closes += 1
+                        if "Total Opens:" in line:
+                            try:
+                                total_opens = int(line.split("Total Opens:")[1].split("|")[0].strip())
+                            except Exception:
+                                pass
                         door_state = "CLOSED"
                         print(f"\n>>> [{now_str}] EVENT: DOOR CLOSED! (Total Closes: {total_closes}) <<<\n")
                         csv_writer.writerow([now_str, "DOOR_CLOSED", door_state, total_opens, total_closes, ""])

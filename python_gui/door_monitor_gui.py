@@ -377,9 +377,30 @@ class DoorMonitorApp(tk.Tk):
                     except ValueError:
                         pass
 
-        elif "EVENT: Door Opened" in line or ">>> [EVENT] DOOR OPENED" in line:
+        elif any(pat in line for pat in ["[EVENT] DOOR OPEN", "EVENT: Door Opened", "DOOR OPENED"]):
+            if "Total Opens:" in line:
+                try:
+                    self.total_opens.set(int(line.split("Total Opens:")[1].split("|")[0].strip()))
+                except Exception:
+                    pass
+            if "Total Closes:" in line:
+                try:
+                    self.total_closes.set(int(line.split("Total Closes:")[1].split(")")[0].strip()))
+                except Exception:
+                    pass
             self._set_door_state("OPEN")
-        elif "EVENT: Door Closed" in line or ">>> [EVENT] DOOR CLOSED" in line:
+
+        elif any(pat in line for pat in ["[EVENT] DOOR CLOSE", "EVENT: Door Closed", "DOOR CLOSED"]):
+            if "Total Opens:" in line:
+                try:
+                    self.total_opens.set(int(line.split("Total Opens:")[1].split("|")[0].strip()))
+                except Exception:
+                    pass
+            if "Total Closes:" in line:
+                try:
+                    self.total_closes.set(int(line.split("Total Closes:")[1].split(")")[0].strip()))
+                except Exception:
+                    pass
             self._set_door_state("CLOSED")
 
     def _set_door_state(self, new_state: str):
@@ -394,14 +415,11 @@ class DoorMonitorApp(tk.Tk):
             if new_state == "OPEN":
                 self.target_angle = 90.0
                 self.lbl_big_state.config(text="DOOR OPEN", fg=self.orange_color)
-                # Increment opens if not already matching
-                self.total_opens.set(self.total_opens.get() + 1)
                 self._log_event("DOOR OPENED", duration_sec)
 
             elif new_state == "CLOSED":
                 self.target_angle = 0.0
                 self.lbl_big_state.config(text="DOOR CLOSED", fg=self.green_color)
-                self.total_closes.set(self.total_closes.get() + 1)
                 self._log_event("DOOR CLOSED", duration_sec)
 
     def _log_event(self, event_name: str, prev_duration: float):

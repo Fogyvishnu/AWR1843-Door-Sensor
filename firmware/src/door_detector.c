@@ -257,6 +257,10 @@ void DoorDetector_processFrame(
     {
         gStatus.avgDoorDistance = sumDistance / (float)doorPointsCount;
     }
+    else
+    {
+        gStatus.avgDoorDistance = 0.0f;
+    }
 
     /* Auto-Calibration phase on boot */
     if (gCfg.autoCalibrate && !gStatus.isCalibrated)
@@ -280,6 +284,13 @@ void DoorDetector_processFrame(
                 gStatus.currentState = DOOR_STATE_CLOSED;
                 gStatus.candidateState = DOOR_STATE_CLOSED;
             }
+        }
+        else if (gStatus.frameCount >= ((uint32_t)gCfg.calibFrameCount * 3U))
+        {
+            /* Fail-safe timeout: fallback to configured defaults if no points detected */
+            gStatus.isCalibrated = 1;
+            gStatus.currentState = DOOR_STATE_CLOSED;
+            gStatus.candidateState = DOOR_STATE_CLOSED;
         }
         return;
     }

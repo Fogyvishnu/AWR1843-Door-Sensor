@@ -140,7 +140,7 @@ class DoorVT100Monitor:
             if not file_exists:
                 self.csv_writer.writerow(["Timestamp", "Event", "Current State", "Total Opens", "Total Closes", "Distance (m)", "SNR (dB)"])
 
-    def record_transition(self, new_state):
+    def record_transition(self, new_state, increment=True):
         if new_state == self.door_state:
             return
 
@@ -149,14 +149,16 @@ class DoorVT100Monitor:
         self.state_start_time = time.time()
 
         if new_state == "OPEN":
-            self.total_opens += 1
+            if increment:
+                self.total_opens += 1
             event_name = "DOOR OPENED"
             if self.beep_on_open:
                 # Terminal audible bell
                 sys.stdout.write("\a")
                 sys.stdout.flush()
         elif new_state == "CLOSED":
-            self.total_closes += 1
+            if increment:
+                self.total_closes += 1
             event_name = "DOOR CLOSED"
         else:
             event_name = f"STATE -> {new_state}"
@@ -193,10 +195,30 @@ class DoorVT100Monitor:
 
         # Check for instant event messages
         if "EVENT: Door Opened" in line or "EVENT] DOOR OPEN" in line:
-            self.record_transition("OPEN")
+            if "Total Opens:" in line:
+                try:
+                    self.total_opens = int(line.split("Total Opens:")[1].split("|")[0].strip())
+                except (ValueError, IndexError):
+                    pass
+            if "Total Closes:" in line:
+                try:
+                    self.total_closes = int(line.split("Total Closes:")[1].split(")")[0].strip())
+                except (ValueError, IndexError):
+                    pass
+            self.record_transition("OPEN", increment=("Total Opens:" not in line))
             return
-        elif "EVENT: Door Closed" in line or "EVENT] DOOR CLOSED" in line:
-            self.record_transition("CLOSED")
+        elif "EVENT: Door Closed" in line or "EVENT] DOOR CLOSE" in line:
+            if "Total Opens:" in line:
+                try:
+                    self.total_opens = int(line.split("Total Opens:")[1].split("|")[0].strip())
+                except (ValueError, IndexError):
+                    pass
+            if "Total Closes:" in line:
+                try:
+                    self.total_closes = int(line.split("Total Closes:")[1].split(")")[0].strip())
+                except (ValueError, IndexError):
+                    pass
+            self.record_transition("CLOSED", increment=("Total Closes:" not in line))
             return
 
         # Check for periodic telemetry lines:
@@ -212,12 +234,7 @@ class DoorVT100Monitor:
             parts = line.split("|")
             for p in parts:
                 p = p.strip()
-                if "State:" in p:
-                    st = p.split("State:")[1].strip().upper()
-                    if st in ["OPEN", "CLOSED", "UNKNOWN"]:
-                        if st != self.door_state:
-                            self.record_transition(st)
-                elif "Opens:" in p:
+                if "Opens:" in p:
                     try:
                         self.total_opens = int(p.split("Opens:")[1].strip())
                     except ValueError:
@@ -242,6 +259,14 @@ class DoorVT100Monitor:
                         self.peak_snr = float(p.split("SNR:")[1].strip().replace("dB", ""))
                     except ValueError:
                         pass
+
+            for p in parts:
+                p = p.strip()
+                if "State:" in p:
+                    st = p.split("State:")[1].strip().upper()
+                    if st in ["OPEN", "CLOSED", "UNKNOWN"]:
+                        if st != self.door_state:
+                            self.record_transition(st, increment=False)
 
     def render_dashboard(self):
         elapsed_total = int(time.time() - self.start_time)
